@@ -102,12 +102,13 @@ gcc_toolchain("x64") {
 }
 
 gcc_toolchain("mipsel") {
-  cc = "mipsel-linux-gnu-gcc"
-  cxx = "mipsel-linux-gnu-g++"
-  ar = "mipsel-linux-gnu-ar"
+  cc_path = "/usr/local/google/home/dalyj/gfiber/toolchains/bruno/bin"
+  cc = "$cc_path/mipsel-buildroot-linux-uclibc-gcc"
+  cxx = "$cc_path/mipsel-buildroot-linux-uclibc-g++"
+  ar = "$cc_path/mipsel-buildroot-linux-uclibc-ar"
   ld = cxx
-  readelf = "mipsel-linux-gnu-readelf"
-  nm = "mipsel-linux-gnu-nm"
+  readelf = "$cc_path/mipsel-buildroot-linux-uclibc-readelf"
+  nm = "$cc_path/mipsel-buildroot-linux-uclibc-nm"
 
   toolchain_cpu = "mipsel"
   toolchain_os = "linux"

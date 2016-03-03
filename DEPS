@@ -88,6 +88,9 @@ deps = {
   # TODO(jackson): Remove this once we're able to build Firebase on its own Travis instance
   'src/third_party/firebase':
    'https://github.com/collinjackson/firebase-sdk.git@master',
+
+  'src/third_party/glfw/':
+   'https://github.com/glfw/glfw.git' + '@' + '30306e54705c3adae9fe082c816a3be71963485c',
 }
 
 deps_os = {

@@ -286,10 +286,12 @@ if (is_android) {
       "//mojo/common",
       "//mojo/edk/base_edk",
       "//mojo/edk/system",
+      "//third_party/glfw",
       ":common",
       ":gpu_direct",
-      ":testing",
     ]
+
+    configs += [ "//third_party/glfw:glfw_config" ]
   }
 } else if (is_mac) {
   import("//build/config/mac/rules.gni")
