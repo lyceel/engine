@@ -9,6 +9,9 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
+#include "mojo/common/binding_set.h"
+#include "mojo/public/cpp/application/interface_factory.h"
+#include "mojo/public/cpp/application/service_provider_impl.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/core.h"
 #include "mojo/public/cpp/system/data_pipe.h"
@@ -22,6 +25,12 @@
 #include "sky/shell/rasterizer.h"
 #include "sky/shell/ui_delegate.h"
 #include "third_party/skia/include/core/SkPicture.h"
+
+namespace mojo {
+namespace asset_bundle {
+class ZipAssetBundle;
+}
+}
 
 namespace sky {
 class PlatformImpl;
@@ -58,15 +67,14 @@ class Engine : public UIDelegate,
   void SetServices(ServicesDataPtr services) override;
   void OnViewportMetricsChanged(ViewportMetricsPtr metrics) override;
   void OnLocaleChanged(const mojo::String& language_code,
-		       const mojo::String& country_code) override;
+                       const mojo::String& country_code) override;
   void OnPointerPacket(pointer::PointerPacketPtr packet) override;
 
   void RunFromFile(const mojo::String& main,
-                   const mojo::String& package_root) override;
+                   const mojo::String& package_root,
+                   const mojo::String& bundle) override;
   void RunFromPrecompiledSnapshot(const mojo::String& bundle_path) override;
   void RunFromBundle(const mojo::String& path) override;
-  void RunFromAssetBundle(const mojo::String& url,
-                          mojo::asset_bundle::AssetBundlePtr bundle) override;
   void RunFromBundleAndSnapshot(const mojo::String& bundle_path,
                                 const mojo::String& snapshot_path) override;
   void PushRoute(const mojo::String& route) override;
@@ -77,19 +85,31 @@ class Engine : public UIDelegate,
   void ScheduleFrame() override;
   void FlushRealTimeEvents() override;
   void Render(std::unique_ptr<flow::LayerTree> layer_tree) override;
-  void DidCreateIsolate(Dart_Isolate isolate) override;
+  void DidCreateMainIsolate(Dart_Isolate isolate) override;
+  void DidCreateSecondaryIsolate(Dart_Isolate isolate) override;
+
+  void BindToServiceProvider(
+      mojo::InterfaceRequest<mojo::ServiceProvider> request);
 
   void RunFromLibrary(const std::string& name);
   void RunFromSnapshotStream(const std::string& name,
                              mojo::ScopedDataPipeConsumerHandle snapshot);
 
+  void SetupAssetBundle(const mojo::String& bundle_path);
+
   void StopAnimator();
   void StartAnimatorIfPossible();
+
+  void ConfigureZipAssetBundle(const mojo::String& path);
 
   Config config_;
   std::unique_ptr<Animator> animator_;
 
   ServicesDataPtr services_;
+  mojo::ServiceProviderImpl service_provider_impl_;
+  mojo::ServiceProviderPtr services_provided_by_embedder_;
+  mojo::BindingSet<mojo::ServiceProvider> service_provider_bindings_;
+
   mojo::asset_bundle::AssetBundlePtr root_bundle_;
   std::unique_ptr<blink::DartLibraryProvider> dart_library_provider_;
   std::unique_ptr<blink::SkyView> sky_view_;
@@ -99,6 +119,7 @@ class Engine : public UIDelegate,
   std::string language_code_;
   std::string country_code_;
   mojo::Binding<SkyEngine> binding_;
+  scoped_refptr<mojo::asset_bundle::ZipAssetBundle> zip_asset_bundle_;
 
   // TODO(eseidel): This should move into an AnimatorStateMachine.
   bool activity_running_;

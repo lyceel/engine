@@ -7,18 +7,20 @@
 #include <dlfcn.h>
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "dart/runtime/bin/embedded_dart_io.h"
 #include "dart/runtime/include/dart_mirrors_api.h"
 #include "mojo/public/platform/dart/dart_handle_watcher.h"
+#include "services/asset_bundle/zip_asset_bundle.h"
 #include "sky/engine/bindings/dart_mojo_internal.h"
 #include "sky/engine/bindings/dart_runtime_hooks.h"
 #include "sky/engine/bindings/dart_ui.h"
 #include "sky/engine/core/script/dart_debugger.h"
 #include "sky/engine/core/script/dart_service_isolate.h"
-#include "sky/engine/core/script/dom_dart_state.h"
+#include "sky/engine/core/script/ui_dart_state.h"
 #include "sky/engine/public/platform/sky_settings.h"
 #include "sky/engine/tonic/dart_api_scope.h"
 #include "sky/engine/tonic/dart_class_library.h"
@@ -32,6 +34,7 @@
 #include "sky/engine/tonic/dart_state.h"
 #include "sky/engine/tonic/dart_wrappable.h"
 #include "sky/engine/tonic/uint8_list.h"
+#include "sky/engine/wtf/MakeUnique.h"
 
 #ifdef OS_ANDROID
 #include "sky/engine/bindings/jni/dart_jni.h"
@@ -51,6 +54,10 @@ extern const uint8_t* observatory_assets_archive;
 
 namespace blink {
 
+using mojo::asset_bundle::ZipAssetBundle;
+
+const char kSnapshotAssetKey[] = "snapshot_blob.bin";
+
 Dart_Handle DartLibraryTagHandler(Dart_LibraryTag tag,
                                   Dart_Handle library,
                                   Dart_Handle url) {
@@ -59,22 +66,11 @@ Dart_Handle DartLibraryTagHandler(Dart_LibraryTag tag,
 
 namespace {
 
-void CreateEmptyRootLibraryIfNeeded() {
-  if (Dart_IsNull(Dart_RootLibrary())) {
-    Dart_LoadScript(Dart_NewStringFromCString("dart:empty"), Dart_EmptyString(),
-                    0, 0);
-  }
-}
-
-static const char* kDartArgs[] = {
-    "--enable_mirrors=false",
+static const char* kDartProfilingArgs[] = {
     // Dart assumes ARM devices are insufficiently powerful and sets the
     // default profile period to 100Hz. This number is suitable for older
     // Raspberry Pi devices but quite low for current smartphones.
     "--profile_period=1000",
-    // Background compilation isn't quite ready, but this flag turns it on if we
-    // want to experiment with it.
-    // "--background_compilation",
 #if (WTF_OS_IOS || WTF_OS_MACOSX)
     // On platforms where LLDB is the primary debugger, SIGPROF signals
     // overwhelm LLDB.
@@ -82,8 +78,12 @@ static const char* kDartArgs[] = {
 #endif
 };
 
-static const char* kDartPrecompilationArgs[]{
-    "--precompilation",
+static const char *kDartMirrorsArgs[] = {
+  "--enable_mirrors=false",
+};
+
+static const char* kDartBackgroundCompilationArgs[] = {
+  "--background_compilation",
 };
 
 static const char* kDartCheckedModeArgs[] = {
@@ -96,6 +96,10 @@ static const char* kDartCheckedModeArgs[] = {
 static const char* kDartStartPausedArgs[]{
     "--pause_isolates_on_start",
 };
+
+const char kFileUriPrefix[] = "file://";
+
+const char kDartFlags[] = "dart-flags";
 
 void IsolateShutdownCallback(void* callback_data) {
   // TODO(dart)
@@ -132,10 +136,7 @@ Dart_Isolate IsolateCreateCallback(const char* script_uri,
       DartIO::InitForIsolate();
       DartUI::InitForIsolate();
       DartMojoInternal::InitForIsolate();
-#ifdef OS_ANDROID
-      DartJni::InitForIsolate();
-#endif
-      DartRuntimeHooks::Install(DartRuntimeHooks::DartIOIsolate);
+      DartRuntimeHooks::Install(DartRuntimeHooks::SecondaryIsolate, "");
       const SkySettings& settings = SkySettings::Get();
       if (settings.enable_observatory) {
         std::string ip = "127.0.0.1";
@@ -149,11 +150,22 @@ Dart_Isolate IsolateCreateCallback(const char* script_uri,
     return isolate;
   }
 
-  // Create & start the handle watcher isolate
-  // TODO(abarth): Who deletes this DartState instance?
-  DartState* dart_state = new DartState();
+  std::vector<uint8_t> snapshot_data;
+  if (!IsRunningPrecompiledCode()) {
+    CHECK(base::StartsWith(script_uri, kFileUriPrefix,
+                           base::CompareCase::SENSITIVE));
+    base::FilePath flx_path(script_uri + strlen(kFileUriPrefix));
+    scoped_refptr<ZipAssetBundle> zip_asset_bundle(
+        new ZipAssetBundle(flx_path, nullptr));
+    CHECK(zip_asset_bundle->GetAsBuffer(kSnapshotAssetKey, &snapshot_data));
+  }
+
+  FlutterDartState* parent_dart_state =
+      static_cast<FlutterDartState*>(callback_data);
+  FlutterDartState* dart_state = parent_dart_state->CreateForChildIsolate();
+
   Dart_Isolate isolate = Dart_CreateIsolate(
-      "sky:handle_watcher", "",
+      script_uri, main,
       reinterpret_cast<uint8_t*>(DART_SYMBOL(kDartIsolateSnapshotBuffer)),
       nullptr, dart_state, error);
   CHECK(isolate) << error;
@@ -166,12 +178,18 @@ Dart_Isolate IsolateCreateCallback(const char* script_uri,
     DartIO::InitForIsolate();
     DartUI::InitForIsolate();
     DartMojoInternal::InitForIsolate();
-#ifdef OS_ANDROID
-    DartJni::InitForIsolate();
-#endif
+    DartRuntimeHooks::Install(DartRuntimeHooks::SecondaryIsolate, script_uri);
 
-    if (!script_uri)
-      CreateEmptyRootLibraryIfNeeded();
+    dart_state->class_library().add_provider(
+      "ui",
+      WTF::MakeUnique<DartClassProvider>(dart_state, "dart:ui"));
+
+    if (!snapshot_data.empty()) {
+      CHECK(!LogIfError(Dart_LoadScriptFromSnapshot(
+          snapshot_data.data(), snapshot_data.size())));
+    }
+
+    dart_state->isolate_client()->DidCreateSecondaryIsolate(isolate);
   }
 
   Dart_ExitIsolate();
@@ -215,6 +233,7 @@ static void ServiceStreamCancelCallback(const char* stream_id) {
 const char* kDartVmIsolateSnapshotBufferName = "kDartVmIsolateSnapshotBuffer";
 const char* kDartIsolateSnapshotBufferName = "kDartIsolateSnapshotBuffer";
 const char* kInstructionsSnapshotName = "kInstructionsSnapshot";
+const char* kDataSnapshotName = "kDataSnapshot";
 
 const char* kDartApplicationLibraryPath =
     "FlutterApplication.framework/FlutterApplication";
@@ -258,6 +277,10 @@ static const uint8_t* PrecompiledInstructionsSymbolIfPresent() {
   return reinterpret_cast<uint8_t*>(DART_SYMBOL(kInstructionsSnapshot));
 }
 
+static const uint8_t* PrecompiledDataSnapshotSymbolIfPresent() {
+  return reinterpret_cast<uint8_t*>(DART_SYMBOL(kDataSnapshot));
+}
+
 bool IsRunningPrecompiledCode() {
   TRACE_EVENT0("flutter", __func__);
   return PrecompiledInstructionsSymbolIfPresent() != nullptr;
@@ -266,6 +289,10 @@ bool IsRunningPrecompiledCode() {
 #else  // DART_ALLOW_DYNAMIC_RESOLUTION
 
 static const uint8_t* PrecompiledInstructionsSymbolIfPresent() {
+  return nullptr;
+}
+
+static const uint8_t* PrecompiledDataSnapshotSymbolIfPresent() {
   return nullptr;
 }
 
@@ -291,11 +318,21 @@ void InitDartVM() {
   enable_checked_mode = true;
 #endif
 
-  Vector<const char*> args;
-  args.append(kDartArgs, arraysize(kDartArgs));
+  if (IsRunningPrecompiledCode()) {
+    enable_checked_mode = false;
+  }
 
-  if (IsRunningPrecompiledCode())
-    args.append(kDartPrecompilationArgs, arraysize(kDartPrecompilationArgs));
+  Vector<const char*> args;
+  args.append(kDartProfilingArgs, arraysize(kDartProfilingArgs));
+
+  if (!IsRunningPrecompiledCode()) {
+    // The version of the VM setup to run precompiled code does not recognize
+    // the mirrors or the background compilation flags. They are never enabled.
+    // Make sure we dont pass in unrecognized flags.
+    args.append(kDartMirrorsArgs, arraysize(kDartMirrorsArgs));
+    args.append(kDartBackgroundCompilationArgs,
+                arraysize(kDartBackgroundCompilationArgs));
+  }
 
   if (enable_checked_mode)
     args.append(kDartCheckedModeArgs, arraysize(kDartCheckedModeArgs));
@@ -303,6 +340,24 @@ void InitDartVM() {
   if (SkySettings::Get().start_paused)
     args.append(kDartStartPausedArgs, arraysize(kDartStartPausedArgs));
 
+  Vector<std::string> dart_flags;
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(kDartFlags)) {
+    // Instruct the VM to ignore unrecognized flags.
+    args.append("--ignore-unrecognized-flags");
+    // Split up dart flags by spaces.
+    base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
+    std::stringstream ss(
+        command_line.GetSwitchValueNative(kDartFlags));
+    std::istream_iterator<std::string> it(ss);
+    std::istream_iterator<std::string> end;
+    while (it != end) {
+      dart_flags.append(*it);
+      it++;
+    }
+  }
+  for (size_t i = 0; i < dart_flags.size(); i++) {
+    args.append(dart_flags[i].data());
+  }
   CHECK(Dart_SetVMFlags(args.size(), args.data()));
 
   {
@@ -321,6 +376,7 @@ void InitDartVM() {
     CHECK(Dart_Initialize(reinterpret_cast<uint8_t*>(
                               DART_SYMBOL(kDartVmIsolateSnapshotBuffer)),
                           PrecompiledInstructionsSymbolIfPresent(),
+                          PrecompiledDataSnapshotSymbolIfPresent(),
                           IsolateCreateCallback,
                           nullptr,  // Isolate interrupt callback.
                           nullptr,

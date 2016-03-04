@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 #include <map>
+#include <vector>
 
+#include "base/scoped_generic.h"
 #include "base/task_runner.h"
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
@@ -11,41 +13,70 @@
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/cpp/environment/async_waiter.h"
 #include "mojo/services/asset_bundle/interfaces/asset_bundle.mojom.h"
-#include "third_party/zlib/contrib/minizip/unzip.h"
 
 namespace mojo {
 namespace asset_bundle {
 
 // An implementation of AssetBundle that serves assets directly out of a
 // ZIP archive.
-class ZipAssetBundle : public AssetBundle {
+class ZipAssetBundle : public base::RefCountedThreadSafe<ZipAssetBundle> {
+  friend class ZipAssetService;
+
  public:
-  static ZipAssetBundle* Create(InterfaceRequest<AssetBundle> request,
-                                const base::FilePath& zip_path,
-                                scoped_refptr<base::TaskRunner> worker_runner);
-  ~ZipAssetBundle() override;
+  ZipAssetBundle(const base::FilePath& zip_path,
+                 scoped_refptr<base::TaskRunner> worker_runner);
 
   // AssetBundle implementation
   void GetAsStream(
       const String& asset_name,
-      const Callback<void(ScopedDataPipeConsumerHandle)>& callback) override;
+      const Callback<void(ScopedDataPipeConsumerHandle)>& callback);
 
   // Serve this asset from another file instead of using the ZIP contents.
   void AddOverlayFile(const std::string& asset_name,
                       const base::FilePath& file_path);
 
- private:
-  ZipAssetBundle(InterfaceRequest<AssetBundle> request,
-                 const base::FilePath& zip_path,
-                 scoped_refptr<base::TaskRunner> worker_runner);
+  // Read the asset into a buffer.
+  bool GetAsBuffer(const std::string& asset_name, std::vector<uint8_t>* data);
 
-  StrongBinding<AssetBundle> binding_;
+ protected:
+  friend class base::RefCountedThreadSafe<ZipAssetBundle>;
+  virtual ~ZipAssetBundle();
+
   const base::FilePath zip_path_;
   scoped_refptr<base::TaskRunner> worker_runner_;
   std::map<String, base::FilePath> overlay_files_;
 
   DISALLOW_COPY_AND_ASSIGN(ZipAssetBundle);
 };
+
+// Wrapper that exposes the ZipAssetBundle as a Mojo service.
+class ZipAssetService : public AssetBundle {
+ public:
+  static void Create(
+      InterfaceRequest<AssetBundle> request,
+      const scoped_refptr<ZipAssetBundle>& zip_asset_bundle);
+
+ public:
+  void GetAsStream(
+      const String& asset_name,
+      const Callback<void(ScopedDataPipeConsumerHandle)>& callback) override;
+
+  ~ZipAssetService() override;
+
+ private:
+  ZipAssetService(InterfaceRequest<AssetBundle> request,
+                  const scoped_refptr<ZipAssetBundle>& zip_asset_bundle);
+
+  StrongBinding<AssetBundle> binding_;
+  scoped_refptr<ZipAssetBundle> zip_asset_bundle_;
+};
+
+struct ScopedUnzFileTraits {
+  static void* InvalidValue();
+  static void Free(void* unz_file);
+};
+
+typedef base::ScopedGeneric<void*, ScopedUnzFileTraits> ScopedUnzFile;
 
 // Reads an asset from a ZIP archive and writes it to a Mojo pipe.
 class ZipAssetHandler {
@@ -72,7 +103,7 @@ class ZipAssetHandler {
   scoped_refptr<base::SingleThreadTaskRunner> main_runner_;
   scoped_refptr<base::TaskRunner> worker_runner_;
 
-  unzFile zip_file_;
+  ScopedUnzFile zip_file_;
 
   void* buffer_;
   uint32_t buffer_size_;

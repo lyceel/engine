@@ -8,7 +8,6 @@
 #include "base/macros.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/interfaces/application/application_connector.mojom.h"
-#include "mojo/services/asset_bundle/interfaces/asset_bundle.mojom.h"
 #include "mojo/services/gfx/composition/interfaces/scenes.mojom.h"
 #include "mojo/services/ui/input/interfaces/input_connection.mojom.h"
 #include "mojo/services/ui/views/interfaces/view_manager.mojom.h"
@@ -21,18 +20,18 @@
 namespace sky {
 namespace shell {
 
-class ViewImpl : public mojo::ui::View,
+class ViewImpl : public mojo::ui::ViewListener,
                  public mojo::ui::InputListener {
  public:
-  ViewImpl(ServicesDataPtr services,
-           const std::string& url,
-           const mojo::ui::ViewProvider::CreateViewCallback& callback);
+  ViewImpl(mojo::InterfaceRequest<mojo::ui::ViewOwner> view_owner,
+           ServicesDataPtr services,
+           const std::string& url);
   ~ViewImpl() override;
 
-  void Run(mojo::asset_bundle::AssetBundlePtr bundle);
+  void Run(base::FilePath flx_path);
 
  private:
-  // mojo::ui::View
+  // mojo::ui::ViewListener
   void OnLayout(mojo::ui::ViewLayoutParamsPtr layout_params,
                 mojo::Array<uint32_t> children_needing_layout,
                 const OnLayoutCallback& callback) override;
@@ -46,7 +45,7 @@ class ViewImpl : public mojo::ui::View,
     return static_cast<PlatformViewMojo*>(shell_view_->view());
   }
 
-  mojo::StrongBinding<mojo::ui::View> binding_;
+  mojo::StrongBinding<mojo::ui::ViewListener> binding_;
   std::string url_;
   mojo::ui::ViewManagerPtr view_manager_;
   mojo::ServiceProviderPtr view_service_provider_;

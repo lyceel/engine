@@ -8,7 +8,6 @@ import "mojo/public/interfaces/application/service_provider.mojom";
 import "mojo/public/interfaces/application/shell.mojom";
 import "mojo/services/asset_bundle/interfaces/asset_bundle.mojom";
 import "mojo/services/gfx/composition/interfaces/scheduling.mojom";
-import "mojo/services/service_registry/interfaces/service_registry.mojom";
 import "mojo/services/ui/views/interfaces/views.mojom";
 import "sky/services/engine/input_event.mojom";
 import "sky/services/pointer/pointer.mojom";
@@ -30,10 +29,9 @@ struct ViewportMetrics {
 
 struct ServicesData {
   mojo.Shell? shell;
-  mojo.ServiceRegistry? service_registry;
   mojo.ServiceProvider? services_provided_by_embedder;
   mojo.ServiceProvider&? services_provided_to_embedder;
-  mojo.ui.ViewHost? view_host;
+  mojo.ui.View? view;
   mojo.gfx.composition.SceneScheduler? scene_scheduler;
 };
 
@@ -50,11 +48,9 @@ interface SkyEngine {
   PushRoute(string route);
   PopRoute();
 
-  RunFromFile(string main, string package_root);
+  RunFromFile(string main, string package_root, string bundle);
   RunFromPrecompiledSnapshot(string path);
   RunFromBundle(string path);
-
-  RunFromAssetBundle(string url, mojo.asset_bundle.AssetBundle bundle);
 
   // Run the app from a bundle, but obtain the snapshot from snapshot_path
   // instead of using the snapshot within the bundle.

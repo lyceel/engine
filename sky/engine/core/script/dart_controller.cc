@@ -17,8 +17,9 @@
 #include "sky/engine/core/script/dart_debugger.h"
 #include "sky/engine/core/script/dart_init.h"
 #include "sky/engine/core/script/dart_service_isolate.h"
-#include "sky/engine/core/script/dom_dart_state.h"
+#include "sky/engine/core/script/ui_dart_state.h"
 #include "sky/engine/public/platform/Platform.h"
+#include "sky/engine/public/platform/sky_settings.h"
 #include "sky/engine/tonic/dart_api_scope.h"
 #include "sky/engine/tonic/dart_class_library.h"
 #include "sky/engine/tonic/dart_dependency_catcher.h"
@@ -27,6 +28,7 @@
 #include "sky/engine/tonic/dart_io.h"
 #include "sky/engine/tonic/dart_isolate_scope.h"
 #include "sky/engine/tonic/dart_library_loader.h"
+#include "sky/engine/tonic/dart_message_handler.h"
 #include "sky/engine/tonic/dart_snapshot_loader.h"
 #include "sky/engine/tonic/dart_state.h"
 #include "sky/engine/tonic/dart_wrappable.h"
@@ -37,45 +39,62 @@
 #endif
 
 namespace blink {
-namespace {
-
-void CreateEmptyRootLibraryIfNeeded() {
-  if (Dart_IsNull(Dart_RootLibrary())) {
-    Dart_LoadScript(Dart_NewStringFromCString("dart:empty"), Dart_EmptyString(),
-                    0, 0);
-  }
-}
-
-void CallHandleMessage(base::WeakPtr<DartState> dart_state) {
-  TRACE_EVENT0("flutter", "CallHandleMessage");
-
-  if (!dart_state)
-    return;
-
-  DartIsolateScope scope(dart_state->isolate());
-  DartApiScope dart_api_scope;
-  LogIfError(Dart_HandleMessage());
-}
-
-void MessageNotifyCallback(Dart_Isolate dest_isolate) {
-  DCHECK(Platform::current());
-  Platform::current()->GetUITaskRunner()->PostTask(FROM_HERE,
-      base::Bind(&CallHandleMessage, DartState::From(dest_isolate)->GetWeakPtr()));
-}
-
-} // namespace
 
 DartController::DartController() : weak_factory_(this) {
 }
 
 DartController::~DartController() {
-  if (dom_dart_state_) {
+  if (ui_dart_state_) {
     // Don't use a DartIsolateScope here since we never exit the isolate.
-    Dart_EnterIsolate(dom_dart_state_->isolate());
+    Dart_EnterIsolate(ui_dart_state_->isolate());
     Dart_ShutdownIsolate();
-    dom_dart_state_->SetIsolate(nullptr);
-    dom_dart_state_ = nullptr;
+    ui_dart_state_->SetIsolate(nullptr);
+    ui_dart_state_ = nullptr;
   }
+}
+
+bool DartController::SendStartMessage(Dart_Handle root_library) {
+  {
+    // Temporarily exit the isolate while we make it runnable.
+    Dart_Isolate isolate = dart_state()->isolate();
+    DCHECK(Dart_CurrentIsolate() == isolate);
+    Dart_ExitIsolate();
+    Dart_IsolateMakeRunnable(isolate);
+    Dart_EnterIsolate(isolate);
+  }
+
+  // In order to support pausing the isolate at start, we indirectly invoke
+  // main by sending a message to the isolate.
+  // Grab the 'dart:ui' library.
+  Dart_Handle ui_library = Dart_LookupLibrary(ToDart("dart:ui"));
+  DART_CHECK_VALID(ui_library);
+
+  // Grab the 'dart:isolate' library.
+  Dart_Handle isolate_lib = Dart_LookupLibrary(ToDart("dart:isolate"));
+  DART_CHECK_VALID(isolate_lib);
+
+  // Import the root library into the 'dart:ui' library so that we can
+  // reach main.
+  Dart_LibraryImportLibrary(ui_library, root_library, Dart_Null());
+
+  // Get the closure of main().
+  Dart_Handle main_closure = Dart_Invoke(ui_library,
+                                         ToDart("_getMainClosure"),
+                                         0,
+                                         NULL);
+  DART_CHECK_VALID(main_closure);
+
+  // Send the start message containing the entry point by calling
+  // _startMainIsolate in dart:isolate.
+  const intptr_t kNumIsolateArgs = 2;
+  Dart_Handle isolate_args[kNumIsolateArgs];
+  isolate_args[0] = main_closure;
+  isolate_args[1] = Dart_Null();
+  Dart_Handle result = Dart_Invoke(isolate_lib,
+                                   ToDart("_startMainIsolate"),
+                                   kNumIsolateArgs,
+                                   isolate_args);
+  return LogIfError(result);
 }
 
 void DartController::DidLoadMainLibrary(std::string name) {
@@ -87,7 +106,7 @@ void DartController::DidLoadMainLibrary(std::string name) {
   Dart_Handle library = Dart_LookupLibrary(ToDart(name));
   if (LogIfError(library))
     exit(1);
-  if (DartInvokeField(library, "main", {}))
+  if (SendStartMessage(library))
     exit(1);
 }
 
@@ -100,10 +119,10 @@ void DartController::DidLoadSnapshot() {
   Dart_Isolate isolate = dart_state()->isolate();
   DartIsolateScope isolate_scope(isolate);
   DartApiScope dart_api_scope;
-
   Dart_Handle library = Dart_RootLibrary();
-  DART_CHECK_VALID(library);
-  DartInvokeField(library, "main", {});
+  if (LogIfError(library))
+    return;
+  SendStartMessage(library);
 }
 
 void DartController::RunFromPrecompiledSnapshot() {
@@ -124,34 +143,38 @@ void DartController::RunFromSnapshotBuffer(const uint8_t* buffer, size_t size) {
   Dart_Handle library = Dart_RootLibrary();
   if (LogIfError(library))
     return;
-  DartInvokeField(library, "main", {});
+  SendStartMessage(library);
 }
 
 void DartController::RunFromLibrary(const std::string& name,
                                     DartLibraryProvider* library_provider) {
   DartState::Scope scope(dart_state());
-  CreateEmptyRootLibraryIfNeeded();
 
   DartLibraryLoader& loader = dart_state()->library_loader();
   loader.set_library_provider(library_provider);
 
   DartDependencyCatcher dependency_catcher(loader);
-  loader.LoadLibrary(name);
+  loader.LoadScript(name);
   loader.WaitForDependencies(dependency_catcher.dependencies(),
                              base::Bind(&DartController::DidLoadMainLibrary,
                                         weak_factory_.GetWeakPtr(), name));
 }
 
-void DartController::CreateIsolateFor(std::unique_ptr<DOMDartState> state) {
+void DartController::CreateIsolateFor(std::unique_ptr<UIDartState> state) {
   char* error = nullptr;
-  dom_dart_state_ = std::move(state);
+  ui_dart_state_ = std::move(state);
   Dart_Isolate isolate = Dart_CreateIsolate(
-      dom_dart_state_->url().c_str(), "main",
+      ui_dart_state_->url().c_str(), "main",
       reinterpret_cast<uint8_t*>(DART_SYMBOL(kDartIsolateSnapshotBuffer)),
-      nullptr, static_cast<DartState*>(dom_dart_state_.get()), &error);
-  Dart_SetMessageNotifyCallback(MessageNotifyCallback);
+      nullptr, static_cast<DartState*>(ui_dart_state_.get()), &error);
   CHECK(isolate) << error;
-  dom_dart_state_->SetIsolate(isolate);
+  auto& message_handler = dart_state()->message_handler();
+  message_handler.set_quit_message_loop_when_isolate_exits(false);
+  DCHECK(Platform::current());
+  message_handler.Initialize(Platform::current()->GetUITaskRunner());
+
+  Dart_SetShouldPauseOnStart(SkySettings::Get().start_paused);
+  ui_dart_state_->SetIsolate(isolate);
   CHECK(!LogIfError(Dart_SetLibraryTagHandler(DartLibraryTagHandler)));
 
   {
@@ -159,7 +182,8 @@ void DartController::CreateIsolateFor(std::unique_ptr<DOMDartState> state) {
     DartIO::InitForIsolate();
     DartUI::InitForIsolate();
     DartMojoInternal::InitForIsolate();
-    DartRuntimeHooks::Install(DartRuntimeHooks::MainIsolate);
+    DartRuntimeHooks::Install(DartRuntimeHooks::MainIsolate,
+                              ui_dart_state_->url().c_str());
 
     dart_state()->class_library().add_provider(
       "ui",

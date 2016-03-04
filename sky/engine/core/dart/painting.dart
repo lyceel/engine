@@ -9,6 +9,8 @@ abstract class Image extends NativeFieldWrapperClass2 {
   int get height native "Image_height";
 
   void dispose() native "Image_dispose";
+
+  String toString() => '[$width\u00D7$height]';
 }
 
 typedef void _ImageDecoderCallback(Image result);
@@ -84,10 +86,17 @@ class LayerDrawLooperBuilder extends NativeFieldWrapperClass2 {
 
 /// Blur styles. These mirror SkBlurStyle and must be kept in sync.
 enum BlurStyle {
-  normal,  /// Fuzzy inside and outside.
-  solid,  /// Solid inside, fuzzy outside.
-  outer,  /// Nothing inside, fuzzy outside.
-  inner,  /// Fuzzy inside, nothing outside.
+  /// Fuzzy inside and outside.
+  normal,
+
+  /// Solid inside, fuzzy outside.
+  solid,
+
+  /// Nothing inside, fuzzy outside.
+  outer,
+
+  /// Fuzzy inside, nothing outside.
+  inner,
 }
 
 // Convert constructor parameters to the SkBlurMaskFilter::BlurFlags type.
@@ -209,7 +218,8 @@ class Canvas extends NativeFieldWrapperClass2 {
   void saveLayer(Rect bounds, Paint paint) native "Canvas_saveLayer";
   void restore() native "Canvas_restore";
   
-  /// returns 1 for a clean canvas; each call to save() or saveLayer() increments it, and each call to 
+  /// Returns 1 for a clean canvas; each call to save() or saveLayer()
+  /// increments it, and each call to restore() decrements it.
   int getSaveCount() native "Canvas_getSaveCount";
   
   void translate(double dx, double dy) native "Canvas_translate";
@@ -246,7 +256,7 @@ class Canvas extends NativeFieldWrapperClass2 {
   void drawPath(Path path, Paint paint) native "Canvas_drawPath";
   void drawImage(Image image, Point p, Paint paint) native "Canvas_drawImage";
 
-  /// Drawss the src rect from the image into the canvas as dst rect.
+  /// Draws the src rect from the image into the canvas as dst rect.
   ///
   /// Might sample from outside the src rect by half the width of an applied
   /// filter.

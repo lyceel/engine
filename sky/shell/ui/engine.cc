@@ -11,15 +11,17 @@
 #include "base/trace_event/trace_event.h"
 #include "mojo/data_pipe_utils/data_pipe_utils.h"
 #include "mojo/public/cpp/application/connect.h"
-#include "services/asset_bundle/asset_unpacker_job.h"
 #include "services/asset_bundle/zip_asset_bundle.h"
+#include "sky/engine/bindings/mojo_services.h"
+#include "sky/engine/core/script/dart_init.h"
+#include "sky/engine/core/script/ui_dart_state.h"
 #include "sky/engine/public/platform/sky_display_metrics.h"
 #include "sky/engine/public/platform/WebInputEvent.h"
 #include "sky/engine/public/web/Sky.h"
 #include "sky/shell/dart/dart_library_provider_files.h"
 #include "sky/shell/shell.h"
 #include "sky/shell/ui/animator.h"
-#include "sky/shell/ui/internals.h"
+#include "sky/shell/ui/flutter_font_selector.h"
 #include "sky/shell/ui/platform_impl.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
@@ -28,33 +30,16 @@ namespace sky {
 namespace shell {
 namespace {
 
-const char kSnapshotKey[] = "snapshot_blob.bin";
-
-void Ignored(bool) {
-  TRACE_EVENT_ASYNC_END0("flutter", "AssetUnpackerJobFetch", 1);
-}
-
-mojo::ScopedDataPipeConsumerHandle Fetch(const base::FilePath& path) {
-  TRACE_EVENT_ASYNC_BEGIN0("flutter", "AssetUnpackerJobFetch", 1);
-  mojo::DataPipe pipe;
-  auto runner = base::WorkerPool::GetTaskRunner(true);
-  mojo::common::CopyFromFile(base::FilePath(path), pipe.producer_handle.Pass(),
-                             0, runner.get(), base::Bind(&Ignored));
-  return pipe.consumer_handle.Pass();
-}
-
 PlatformImpl* g_platform_impl = nullptr;
 
 }  // namespace
 
-using mojo::asset_bundle::AssetUnpackerJob;
 using mojo::asset_bundle::ZipAssetBundle;
+using mojo::asset_bundle::ZipAssetService;
 
-Engine::Config::Config() {
-}
+Engine::Config::Config() {}
 
-Engine::Config::~Config() {
-}
+Engine::Config::~Config() {}
 
 Engine::Engine(const Config& config, rasterizer::RasterizerPtr rasterizer)
     : config_(config),
@@ -62,11 +47,9 @@ Engine::Engine(const Config& config, rasterizer::RasterizerPtr rasterizer)
       binding_(this),
       activity_running_(false),
       have_surface_(false),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
 
-Engine::~Engine() {
-}
+Engine::~Engine() {}
 
 base::WeakPtr<Engine> Engine::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
@@ -120,6 +103,13 @@ void Engine::OnOutputSurfaceDestroyed(const base::Closure& gpu_continuation) {
 void Engine::SetServices(ServicesDataPtr services) {
   services_ = services.Pass();
 
+  if (services_->services_provided_by_embedder) {
+    services_provided_by_embedder_ = mojo::ServiceProviderPtr::Create(
+        services_->services_provided_by_embedder.Pass());
+    service_provider_impl_.set_fallback_service_provider(
+        services_provided_by_embedder_.get());
+  }
+
   if (services_->scene_scheduler) {
     animator_->Reset();
     animator_->set_scene_scheduler(services_->scene_scheduler.Pass());
@@ -127,11 +117,13 @@ void Engine::SetServices(ServicesDataPtr services) {
 #if defined(OS_ANDROID) || defined(OS_IOS)
     vsync::VSyncProviderPtr vsync_provider;
     if (services_->shell) {
-      mojo::ConnectToService(services_->shell.get(), "mojo:vsync",
-                             &vsync_provider);
+      // We bind and unbind our Shell here, since this is the only place we use
+      // it in this class.
+      auto shell = mojo::ShellPtr::Create(services_->shell.Pass());
+      mojo::ConnectToService(shell.get(), "mojo:vsync", &vsync_provider);
+      services_->shell = shell.Pass();
     } else {
-      mojo::ConnectToService(services_->services_provided_by_embedder.get(),
-                             &vsync_provider);
+      mojo::ConnectToService(services_provided_by_embedder_.get(), &vsync_provider);
     }
     animator_->Reset();
     animator_->set_vsync_provider(vsync_provider.Pass());
@@ -153,7 +145,7 @@ void Engine::OnViewportMetricsChanged(ViewportMetricsPtr metrics) {
 }
 
 void Engine::OnLocaleChanged(const mojo::String& language_code,
-			     const mojo::String& country_code) {
+                             const mojo::String& country_code) {
   language_code_ = language_code;
   country_code_ = country_code;
   if (sky_view_)
@@ -185,24 +177,29 @@ void Engine::RunFromLibrary(const std::string& name) {
 }
 
 void Engine::RunFromSnapshotStream(
-    const std::string& name,
+    const std::string& bundle_path,
     mojo::ScopedDataPipeConsumerHandle snapshot) {
   TRACE_EVENT0("flutter", "Engine::RunFromSnapshotStream");
+  std::string script_uri = std::string("file://") + bundle_path;
   sky_view_ = blink::SkyView::Create(this);
-  sky_view_->CreateView(name);
-  sky_view_->RunFromSnapshot(name, snapshot.Pass());
+  sky_view_->CreateView(script_uri);
+  sky_view_->RunFromSnapshot(snapshot.Pass());
   sky_view_->SetDisplayMetrics(display_metrics_);
   sky_view_->SetLocale(language_code_, country_code_);
   if (!initial_route_.empty())
     sky_view_->PushRoute(initial_route_);
 }
 
+void Engine::ConfigureZipAssetBundle(const mojo::String& path) {
+  zip_asset_bundle_ = new ZipAssetBundle(base::FilePath(std::string{path}),
+                                         base::WorkerPool::GetTaskRunner(true));
+  ZipAssetService::Create(mojo::GetProxy(&root_bundle_), zip_asset_bundle_);
+}
+
 void Engine::RunFromPrecompiledSnapshot(const mojo::String& bundle_path) {
   TRACE_EVENT0("flutter", "Engine::RunFromPrecompiledSnapshot");
-  AssetUnpackerJob* unpacker = new AssetUnpackerJob(
-      mojo::GetProxy(&root_bundle_), base::WorkerPool::GetTaskRunner(true));
-  std::string path_str = bundle_path;
-  unpacker->Unpack(Fetch(base::FilePath(path_str)));
+
+  ConfigureZipAssetBundle(bundle_path);
 
   sky_view_ = blink::SkyView::Create(this);
   sky_view_->CreateView("http://localhost");
@@ -214,8 +211,13 @@ void Engine::RunFromPrecompiledSnapshot(const mojo::String& bundle_path) {
 }
 
 void Engine::RunFromFile(const mojo::String& main,
-                         const mojo::String& package_root) {
+                         const mojo::String& package_root,
+                         const mojo::String& bundle) {
   TRACE_EVENT0("flutter", "Engine::RunFromFile");
+  if (bundle.size() != 0) {
+    // The specification of an FLX bundle is optional.
+    ConfigureZipAssetBundle(bundle);
+  }
   std::string package_root_str = package_root;
   dart_library_provider_.reset(
       new DartLibraryProviderFiles(base::FilePath(package_root_str)));
@@ -224,43 +226,29 @@ void Engine::RunFromFile(const mojo::String& main,
 
 void Engine::RunFromBundle(const mojo::String& path) {
   TRACE_EVENT0("flutter", "Engine::RunFromBundle");
-  std::string path_str = path;
-  ZipAssetBundle::Create(mojo::GetProxy(&root_bundle_),
-                         base::FilePath(path_str),
-                         base::WorkerPool::GetTaskRunner(true));
 
-  root_bundle_->GetAsStream(kSnapshotKey,
-                            base::Bind(&Engine::RunFromSnapshotStream,
-                                       weak_factory_.GetWeakPtr(), path_str));
-}
+  ConfigureZipAssetBundle(path);
 
-void Engine::RunFromAssetBundle(const mojo::String& url,
-                                mojo::asset_bundle::AssetBundlePtr bundle) {
-  TRACE_EVENT0("flutter", "Engine::RunFromAssetBundle");
-  std::string url_str = url;
-  root_bundle_ = bundle.Pass();
-  root_bundle_->GetAsStream(kSnapshotKey,
-                            base::Bind(&Engine::RunFromSnapshotStream,
-                                       weak_factory_.GetWeakPtr(), url_str));
+  root_bundle_->GetAsStream(
+      blink::kSnapshotAssetKey,
+      base::Bind(&Engine::RunFromSnapshotStream, weak_factory_.GetWeakPtr(),
+                 std::string{path}));
 }
 
 void Engine::RunFromBundleAndSnapshot(const mojo::String& bundle_path,
                                       const mojo::String& snapshot_path) {
   TRACE_EVENT0("flutter", "Engine::RunFromBundleAndSnapshot");
-  std::string bundle_path_str = bundle_path;
-  ZipAssetBundle* asset_bundle = ZipAssetBundle::Create(
-      mojo::GetProxy(&root_bundle_),
-      base::FilePath(bundle_path_str),
-      base::WorkerPool::GetTaskRunner(true));
+
+  ConfigureZipAssetBundle(bundle_path);
 
   std::string snapshot_path_str = snapshot_path;
-  asset_bundle->AddOverlayFile(kSnapshotKey,
-                               base::FilePath(snapshot_path_str));
+  zip_asset_bundle_->AddOverlayFile(blink::kSnapshotAssetKey,
+                                    base::FilePath(snapshot_path_str));
 
-  root_bundle_->GetAsStream(kSnapshotKey,
-                            base::Bind(&Engine::RunFromSnapshotStream,
-                                       weak_factory_.GetWeakPtr(),
-                                       bundle_path_str));
+  root_bundle_->GetAsStream(
+      blink::kSnapshotAssetKey,
+      base::Bind(&Engine::RunFromSnapshotStream, weak_factory_.GetWeakPtr(),
+                 std::string{bundle_path}));
 }
 
 void Engine::PushRoute(const mojo::String& route) {
@@ -292,8 +280,37 @@ void Engine::OnAppLifecycleStateChanged(sky::AppLifecycleState state) {
     sky_view_->OnAppLifecycleStateChanged(state);
 }
 
-void Engine::DidCreateIsolate(Dart_Isolate isolate) {
-  Internals::Create(isolate, services_.Pass(), root_bundle_.Pass());
+void Engine::DidCreateMainIsolate(Dart_Isolate isolate) {
+  mojo::ServiceProviderPtr services_from_embedder;
+  service_provider_bindings_.AddBinding(
+      &service_provider_impl_, mojo::GetProxy(&services_from_embedder));
+
+  blink::MojoServices::Create(
+      isolate, services_.Pass(), services_from_embedder.Pass(),
+      root_bundle_.Pass());
+
+  if (zip_asset_bundle_) {
+    FlutterFontSelector::install(zip_asset_bundle_);
+  }
+}
+
+void Engine::DidCreateSecondaryIsolate(Dart_Isolate isolate) {
+  mojo::ServiceProviderPtr services_from_embedder;
+  mojo::InterfaceRequest<mojo::ServiceProvider> request =
+      mojo::GetProxy(&services_from_embedder);
+  blink::Platform::current()->GetUITaskRunner()->PostTask(FROM_HERE,
+      base::Bind(&Engine::BindToServiceProvider,
+                 weak_factory_.GetWeakPtr(),
+                 base::Passed(&request)));
+
+  blink::MojoServices::Create(
+      isolate, nullptr, services_from_embedder.Pass(), nullptr);
+}
+
+void Engine::BindToServiceProvider(
+    mojo::InterfaceRequest<mojo::ServiceProvider> request) {
+  service_provider_bindings_.AddBinding(&service_provider_impl_,
+                                        request.Pass());
 }
 
 void Engine::StopAnimator() {
@@ -313,8 +330,7 @@ void Engine::FlushRealTimeEvents() {
   animator_->FlushRealTimeEvents();
 }
 
-void Engine::Render(std::unique_ptr<flow::LayerTree> layer_tree) {
-}
+void Engine::Render(std::unique_ptr<flow::LayerTree> layer_tree) {}
 
 }  // namespace shell
 }  // namespace sky

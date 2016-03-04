@@ -5,7 +5,7 @@
 #include "sky/engine/public/sky/sky_headless.h"
 
 #include "sky/engine/core/script/dart_controller.h"
-#include "sky/engine/core/script/dom_dart_state.h"
+#include "sky/engine/core/script/ui_dart_state.h"
 #include "sky/engine/core/window/window.h"
 #include "sky/engine/wtf/MakeUnique.h"
 
@@ -21,10 +21,10 @@ void SkyHeadless::Init(const std::string& name) {
   DCHECK(!dart_controller_);
 
   dart_controller_ = WTF::MakeUnique<DartController>();
-  dart_controller_->CreateIsolateFor(WTF::MakeUnique<DOMDartState>(
-      WTF::MakeUnique<Window>(this), name));
+  dart_controller_->CreateIsolateFor(WTF::MakeUnique<UIDartState>(
+      this, name, WTF::MakeUnique<Window>(this)));
 
-  DOMDartState* dart_state = dart_controller_->dart_state();
+  UIDartState* dart_state = dart_controller_->dart_state();
   DartState::Scope scope(dart_state);
   dart_state->window()->DidCreateIsolate();
   client_->DidCreateIsolate(dart_state->isolate());
@@ -41,6 +41,9 @@ void SkyHeadless::FlushRealTimeEvents() {
 }
 
 void SkyHeadless::Render(Scene* scene) {
+}
+
+void SkyHeadless::DidCreateSecondaryIsolate(Dart_Isolate isolate) {
 }
 
 } // namespace blink

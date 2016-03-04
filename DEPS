@@ -19,14 +19,13 @@
 
 vars = {
   'chromium_git': 'https://chromium.googlesource.com',
-  'mojo_sdk_revision': '172be18ea745ab29aea132e6cb952e726dc32543',
-  'mojo_devtools_revision': '49879d78ce4486e10c2214a101d9b2e82794b2f4',
+  'mojo_sdk_revision': '683e2a3c441b187abf0d6ba103495f59701fd6fa',
   'base_revision': '6c89618151eb0e23d330778e6d6ea16fc6105010',
-  'skia_revision': '609d97918788c077514f190b0f1087ccbd420f5d',
+  'skia_revision': '992ad363d7ca879cdb86f802b379f06800a44125',
 
   # Note: When updating the Dart revision, ensure that all entries that are
   # dependencies of dart are also updated
-  'dart_revision': '63e836ceae7efe82d7e29fae5a02c39e04922f62',
+  'dart_revision': 'e091d17fd9e94e3f9a0cebab713b27bb8908240f',
   'dart_observatory_packages_revision': 'cf90eb9077177d3d6b3fd5e8289477c2385c026a',
   'dart_root_certificates_revision': 'c3a41df63afacec62fcb8135196177e35fe72f71',
 
@@ -89,6 +88,9 @@ deps = {
   'src/third_party/firebase':
    'https://github.com/collinjackson/firebase-sdk.git@master',
 
+  'src/third_party/gcm':
+   'https://github.com/flutter/flutter_gcm.git@master',
+
   'src/third_party/glfw/':
    'https://github.com/glfw/glfw.git' + '@' + '30306e54705c3adae9fe082c816a3be71963485c',
 }
@@ -139,16 +141,6 @@ hooks = [
     'name': 'dart',
     'pattern': '.',
     'action': ['python', 'src/tools/dart/update.py'],
-  },
-  {
-    # This downloads SDK extras and puts them in the
-    # third_party/android_tools/sdk/extras directory on the bots. Developers
-    # need to manually install these packages and accept the ToS.
-    'name': 'sdkextras',
-    'pattern': '.',
-    # When adding a new sdk extras package to download, add the package
-    # directory and zip file to .gitignore in third_party/android_tools.
-    'action': ['python', 'src/build/download_sdk_extras.py'],
   },
   {
     # Update LASTCHANGE. This is also run by export_tarball.py in
@@ -246,7 +238,7 @@ hooks = [
   },
   # Pull the mojom parser binaries using checked-in hashes.
   {
-    'name': 'mojom_parser',
+    'name': 'mojom_tool',
     'pattern': '',
     'action': [ 'download_from_google_storage',
                 '--no_resume',
@@ -254,11 +246,11 @@ hooks = [
                 '--platform=linux*',
                 '--no_auth',
                 '--bucket', 'mojo/mojom_parser/linux64',
-                '-s', 'src/mojo/public/tools/bindings/mojom_parser/bin/linux64/mojom_parser.sha1',
+                '-s', 'src/mojo/public/tools/bindings/mojom_tool/bin/linux64/mojom.sha1',
     ],
   },
   {
-    'name': 'mojom_parser',
+    'name': 'mojom_tool',
     'pattern': '',
     'action': [ 'download_from_google_storage',
                 '--no_resume',
@@ -266,7 +258,7 @@ hooks = [
                 '--platform=darwin',
                 '--no_auth',
                 '--bucket', 'mojo/mojom_parser/mac64',
-                '-s', 'src/mojo/public/tools/bindings/mojom_parser/bin/mac64/mojom_parser.sha1',
+                '-s', 'src/mojo/public/tools/bindings/mojom_tool/bin/mac64/mojom.sha1',
     ],
   },
   {

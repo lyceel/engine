@@ -8,7 +8,7 @@
 #include "base/trace_event/trace_event.h"
 #include "sky/engine/core/compositing/Scene.h"
 #include "sky/engine/core/script/dart_controller.h"
-#include "sky/engine/core/script/dom_dart_state.h"
+#include "sky/engine/core/script/ui_dart_state.h"
 #include "sky/engine/core/window/window.h"
 #include "sky/engine/public/platform/WebInputEvent.h"
 #include "sky/engine/public/sky/sky_view_client.h"
@@ -51,17 +51,17 @@ void SkyView::PopRoute() {
   GetWindow()->PopRoute();
 }
 
-void SkyView::CreateView(const std::string& name) {
+void SkyView::CreateView(const std::string& script_uri) {
   DCHECK(!dart_controller_);
 
   dart_controller_ = WTF::MakeUnique<DartController>();
-  dart_controller_->CreateIsolateFor(WTF::MakeUnique<DOMDartState>(
-      WTF::MakeUnique<Window>(this), name));
+  dart_controller_->CreateIsolateFor(WTF::MakeUnique<UIDartState>(
+      this, script_uri, WTF::MakeUnique<Window>(this)));
 
-  DOMDartState* dart_state = dart_controller_->dart_state();
+  UIDartState* dart_state = dart_controller_->dart_state();
   DartState::Scope scope(dart_state);
   dart_state->window()->DidCreateIsolate();
-  client_->DidCreateIsolate(dart_state->isolate());
+  client_->DidCreateMainIsolate(dart_state->isolate());
 
   GetWindow()->UpdateWindowMetrics(display_metrics_);
   GetWindow()->UpdateLocale(language_code_, country_code_);
@@ -76,8 +76,7 @@ void SkyView::RunFromPrecompiledSnapshot() {
   dart_controller_->RunFromPrecompiledSnapshot();
 }
 
-void SkyView::RunFromSnapshot(const std::string& name,
-                              mojo::ScopedDataPipeConsumerHandle snapshot) {
+void SkyView::RunFromSnapshot(mojo::ScopedDataPipeConsumerHandle snapshot) {
   dart_controller_->RunFromSnapshot(snapshot.Pass());
 }
 
@@ -106,6 +105,10 @@ void SkyView::FlushRealTimeEvents() {
 
 void SkyView::Render(Scene* scene) {
   layer_tree_ = scene->takeLayerTree();
+}
+
+void SkyView::DidCreateSecondaryIsolate(Dart_Isolate isolate) {
+  client_->DidCreateSecondaryIsolate(isolate);
 }
 
 void SkyView::OnAppLifecycleStateChanged(sky::AppLifecycleState state) {

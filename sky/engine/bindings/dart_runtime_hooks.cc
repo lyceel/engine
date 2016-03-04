@@ -15,7 +15,7 @@
 #include "dart/runtime/bin/embedded_dart_io.h"
 #include "dart/runtime/include/dart_api.h"
 #include "dart/runtime/include/dart_tools_api.h"
-#include "sky/engine/core/script/dom_dart_state.h"
+#include "sky/engine/core/script/ui_dart_state.h"
 #include "sky/engine/tonic/dart_api_scope.h"
 #include "sky/engine/tonic/dart_converter.h"
 #include "sky/engine/tonic/dart_error.h"
@@ -86,7 +86,7 @@ static void InitDartInternal(Dart_Handle builtin_library,
     Dart_Handle timer_name = ToDart("timerFactory");
     DART_CHECK_VALID(Dart_SetField(vm_hooks, timer_name, timer));
   } else {
-    CHECK(isolate_type == DartRuntimeHooks::DartIOIsolate);
+    CHECK(isolate_type == DartRuntimeHooks::SecondaryIsolate);
     Dart_Handle io_lib = Dart_LookupLibrary(ToDart("dart:io"));
     DART_CHECK_VALID(io_lib);
     Dart_Handle setup_hooks = Dart_NewStringFromCString("_setupHooks");
@@ -111,7 +111,7 @@ static void InitDartAsync(Dart_Handle builtin_library,
     schedule_microtask =
         GetClosure(builtin_library, "_getScheduleMicrotaskClosure");
   } else {
-    CHECK(isolate_type == DartRuntimeHooks::DartIOIsolate);
+    CHECK(isolate_type == DartRuntimeHooks::SecondaryIsolate);
     Dart_Handle isolate_lib = Dart_LookupLibrary(ToDart("dart:isolate"));
     Dart_Handle method_name =
         Dart_NewStringFromCString("_getIsolateScheduleImmediateClosure");
@@ -123,12 +123,25 @@ static void InitDartAsync(Dart_Handle builtin_library,
                                &schedule_microtask));
 }
 
-void DartRuntimeHooks::Install(IsolateType isolate_type) {
+static void InitDartIo(const std::string& script_uri) {
+  if (!script_uri.empty()) {
+    Dart_Handle io_lib = Dart_LookupLibrary(ToDart("dart:io"));
+    DART_CHECK_VALID(io_lib);
+    Dart_Handle platform_type = Dart_GetType(io_lib, ToDart("_Platform"),
+                                             0, nullptr);
+    DART_CHECK_VALID(platform_type);
+    DART_CHECK_VALID(Dart_SetField(
+        platform_type, ToDart("_nativeScript"), ToDart(script_uri)));
+  }
+}
+
+void DartRuntimeHooks::Install(IsolateType isolate_type, const std::string& script_uri) {
   Dart_Handle builtin = Dart_LookupLibrary(ToDart("dart:ui"));
   DART_CHECK_VALID(builtin);
   InitDartInternal(builtin, isolate_type);
   InitDartCore(builtin);
   InitDartAsync(builtin, isolate_type);
+  InitDartIo(script_uri);
 }
 
 // Implementation of native functions which are used for some
@@ -170,7 +183,7 @@ void ScheduleMicrotask(Dart_NativeArguments args) {
 }
 
 void GetBaseURLString(Dart_NativeArguments args) {
-  Dart_SetReturnValue(args, ToDart(DOMDartState::Current()->url()));
+  Dart_SetReturnValue(args, ToDart(UIDartState::Current()->url()));
 }
 
 void Timer_create(Dart_NativeArguments args) {

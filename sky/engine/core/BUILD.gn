@@ -5,7 +5,7 @@
 import("//sky/engine/core/core.gni")
 import("//mojo/dart/embedder/embedder.gni")
 
-visibility = [ "//sky/engine/*" ]
+visibility = [ "//sky/engine/*", "//sky/shell/*" ]
 
 source_set("libraries") {
   public_deps = [
@@ -66,6 +66,7 @@ static_library("core") {
     ":generate_sky_embedder_service_isolate_resources_cc",
     ":libraries",
     ":prerequisites",
+    "//services/asset_bundle:lib",
     "//sky/engine/platform",
     "//sky/engine/bindings",
     "//sky/services/engine:interfaces",
@@ -76,10 +77,6 @@ static_library("core") {
     "//dart/runtime/vm:libdart_platform",
     "//mojo/services/navigation/interfaces",
   ]
-
-  if (is_android) {
-    deps += [ "//sky/engine/bindings/jni" ]
-  }
 
   sources = sky_core_files
 

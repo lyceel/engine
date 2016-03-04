@@ -4,8 +4,6 @@
 
 source_set("common") {
   sources = [
-    "gpu/ganesh_canvas.cc",
-    "gpu/ganesh_canvas.h",
     "gpu/picture_serializer.cc",
     "gpu/picture_serializer.h",
     "rasterizer.cc",
@@ -24,19 +22,24 @@ source_set("common") {
     "ui/animator.h",
     "ui/engine.cc",
     "ui/engine.h",
-    "ui/internals.cc",
-    "ui/internals.h",
+    "ui/flutter_font_selector.cc",
+    "ui/flutter_font_selector.h",
     "ui/platform_impl.cc",
     "ui/platform_impl.h",
     "ui_delegate.cc",
     "ui_delegate.h",
   ]
 
-  public_deps = [
+  if (is_ios && !use_ios_simulator) {
+    dart_deps = [ "//dart/runtime:libdart_precompiled_runtime" ]
+  } else {
+    dart_deps = [ "//dart/runtime:libdart" ]
+  }
+
+  public_deps = dart_deps + [
     "//base",
     "//base:i18n",
     "//build/config/sanitizers:deps",
-    "//dart/runtime:libdart",
     "//flow",
     "//mojo/common",
     "//mojo/data_pipe_utils",
@@ -50,6 +53,8 @@ source_set("common") {
     "//services/asset_bundle:lib",
     "//skia",
     "//sky/engine",
+    "//sky/engine/bindings",
+    "//sky/engine/core:core",
     "//sky/engine/tonic",
     "//sky/engine/wtf",
     "//sky/services/editing:interfaces",
@@ -69,6 +74,8 @@ source_set("gpu_direct") {
     "gpu/direct/surface_notifications_direct.h",
     "gpu/direct/rasterizer_direct.cc",
     "gpu/direct/rasterizer_direct.h",
+    "gpu/direct/ganesh_canvas.cc",
+    "gpu/direct/ganesh_canvas.h",
   ]
 
   deps = [
@@ -119,7 +126,6 @@ if (is_android) {
       "platform/android/org/domokit/sky/shell/PlatformViewAndroid.java",
       "platform/android/org/domokit/sky/shell/SkyMain.java",
       "platform/android/org/domokit/sky/shell/TracingController.java",
-      "platform/android/org/domokit/sky/shell/UpdateService.java",
     ]
     jni_package = "sky/shell"
   }
@@ -133,14 +139,12 @@ if (is_android) {
       "platform/android/sky_main.h",
       "platform/android/tracing_controller.cc",
       "platform/android/tracing_controller.h",
-      "platform/android/update_service_android.cc",
     ]
 
     deps = [
       "//mojo/android:libsystem_java",
       "//mojo/edk/base_edk",
       "//mojo/edk/system",
-      "//sky/engine/bindings/jni",
       "//ui/gl",
       ":common",
       ":gpu_direct",
@@ -166,7 +170,6 @@ if (is_android) {
       "platform/android/org/domokit/sky/shell/SkyApplication.java",
       "platform/android/org/domokit/sky/shell/SkyMain.java",
       "platform/android/org/domokit/sky/shell/TracingController.java",
-      "platform/android/org/domokit/sky/shell/UpdateService.java",
     ]
 
     deps = [
@@ -194,7 +197,6 @@ if (is_android) {
       "//sky/services/raw_keyboard:interfaces_java",
       "//sky/services/raw_keyboard:raw_keyboard_lib",
       "//sky/services/semantics:interfaces_java",
-      "//sky/services/updater:interfaces_java",
       "//sky/services/vsync:vsync_lib",
     ]
   }

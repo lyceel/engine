@@ -8,7 +8,6 @@
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/interfaces/application/application.mojom.h"
 #include "mojo/public/interfaces/application/shell.mojom.h"
-#include "mojo/services/asset_bundle/interfaces/asset_bundle.mojom.h"
 #include "mojo/services/content_handler/interfaces/content_handler.mojom.h"
 #include "sky/shell/platform/mojo/platform_view_mojo.h"
 #include "sky/shell/shell_view.h"
@@ -21,6 +20,7 @@ namespace shell {
 
 class ApplicationImpl : public mojo::Application,
                         public mojo::ServiceProvider,
+                        public mojo::Shell,
                         public mojo::ui::ViewProvider {
  public:
   ApplicationImpl(mojo::InterfaceRequest<mojo::Application> application,
@@ -29,13 +29,13 @@ class ApplicationImpl : public mojo::Application,
 
  private:
   // mojo::Application
-  void Initialize(mojo::ShellPtr shell,
+  void Initialize(mojo::InterfaceHandle<mojo::Shell> shell,
                   mojo::Array<mojo::String> args,
                   const mojo::String& url) override;
   void AcceptConnection(
       const mojo::String& requestor_url,
       mojo::InterfaceRequest<mojo::ServiceProvider> outgoing_services,
-      mojo::ServiceProviderPtr incoming_services,
+      mojo::InterfaceHandle<mojo::ServiceProvider> incoming_services,
       const mojo::String& resolved_url) override;
   void RequestQuit() override;
 
@@ -43,21 +43,30 @@ class ApplicationImpl : public mojo::Application,
   void ConnectToService(const mojo::String& service_name,
                         mojo::ScopedMessagePipeHandle client_handle) override;
 
+  // mojo::Shell
+  void ConnectToApplication(
+      const mojo::String& application_url,
+      mojo::InterfaceRequest<mojo::ServiceProvider> services,
+      mojo::InterfaceHandle<mojo::ServiceProvider> exposed_services) override;
+  void CreateApplicationConnector(
+      mojo::InterfaceRequest<mojo::ApplicationConnector> request) override;
+
   // mojo::ui::ViewProvider
   void CreateView(
-      mojo::InterfaceRequest<mojo::ServiceProvider> services,
-      mojo::ServiceProviderPtr exposed_services,
-      const mojo::ui::ViewProvider::CreateViewCallback& callback) override;
+      mojo::InterfaceRequest<mojo::ui::ViewOwner> view_owner,
+      mojo::InterfaceRequest<mojo::ServiceProvider> incoming_services,
+      mojo::InterfaceHandle<mojo::ServiceProvider> outgoing_services) override;
 
   void UnpackInitialResponse(mojo::Shell* shell);
 
   mojo::StrongBinding<mojo::Application> binding_;
   mojo::URLResponsePtr initial_response_;
   mojo::BindingSet<mojo::ServiceProvider> service_provider_bindings_;
+  mojo::BindingSet<mojo::Shell> shell_bindings_;
   mojo::BindingSet<mojo::ui::ViewProvider> view_provider_bindings_;
   std::string url_;
   mojo::ShellPtr shell_;
-  mojo::asset_bundle::AssetBundlePtr bundle_;
+  base::FilePath flx_path_;
 };
 
 }  // namespace shell

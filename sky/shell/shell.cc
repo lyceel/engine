@@ -98,9 +98,7 @@ void Shell::InitStandalone() {
           << "Observatory port specified was malformed. Will default to 8181";
     }
   }
-  // Start Paused
   settings.start_paused = command_line.HasSwitch(switches::kStartPaused);
-  // Set Checked Mode
   settings.enable_dart_checked_mode =
       command_line.HasSwitch(switches::kEnableCheckedMode);
   blink::SkySettings::Set(settings);
