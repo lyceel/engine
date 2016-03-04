@@ -13,11 +13,13 @@
 #include "mojo/edk/embedder/simple_platform_support.h"
 #include "sky/shell/shell.h"
 #include "sky/shell/switches.h"
-#include "sky/shell/platform/linux/platform_view_linux.h"
 #include "sky/shell/testing/testing.h"
 #include "ui/gl/gl_surface.h"
 
+#if defined(USE_GLFW)
+#include "sky/shell/platform/linux/platform_view_linux.h"
 #include "GLFW/glfw3.h"
+#endif
 
 int main(int argc, const char* argv[]) {
   base::AtExitManager exit_manager;
@@ -35,17 +37,15 @@ int main(int argc, const char* argv[]) {
   mojo::embedder::Init(std::unique_ptr<mojo::embedder::PlatformSupport>(
       new mojo::embedder::SimplePlatformSupport()));
 
-  CHECK(gfx::GLSurface::InitializeOneOff());
   sky::shell::Shell::InitStandalone();
 
-  /*
   if (command_line.HasSwitch(sky::shell::switches::kNonInteractive)) {
     if (!sky::shell::InitForTesting()) {
       return 1;
     }
   }
-  */
 
+#if defined(USE_GLFW)
   if (!glfwInit()) {
     return 1;
   }
@@ -56,9 +56,28 @@ int main(int argc, const char* argv[]) {
     return 1;
   }
 
+  glfwMakeContextCurrent(window);
+  CHECK(gfx::GLSurface::InitializeOneOff());
+  glfwMakeContextCurrent(NULL);
+
   auto shell_view = new sky::shell::ShellView(sky::shell::Shell::Shared());
-  auto platform_view = static_cast<sky::shell::PlatformViewLinux *>(shell_view->view());
+  auto platform_view =
+      static_cast<sky::shell::PlatformViewLinux *>(shell_view->view());
   platform_view->SurfaceCreated(window);
+
+  sky::SkyEnginePtr sky_engine;
+  platform_view->ConnectToEngine(mojo::GetProxy(&sky_engine));
+  auto metrics = sky::ViewportMetrics::New();
+  metrics->physical_width = 640;
+  metrics->physical_height = 480;
+  metrics->device_pixel_ratio = 1.0;
+  sky_engine->OnViewportMetricsChanged(metrics.Pass());
+
+
+  auto args = command_line.GetArgs();
+  sky_engine->RunFromFile(args[0],
+      command_line.GetSwitchValueASCII(sky::shell::switches::kPackageRoot));
+#endif
 
   message_loop.Run();
   return 0;

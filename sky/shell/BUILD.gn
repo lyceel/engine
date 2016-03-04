@@ -279,19 +279,32 @@ if (is_android) {
 
     sources = [
       "platform/linux/main_linux.cc",
-      "platform/linux/platform_view_linux.cc",
     ]
 
     deps = [
       "//mojo/common",
       "//mojo/edk/base_edk",
       "//mojo/edk/system",
-      "//third_party/glfw",
       ":common",
-      ":gpu_direct",
+      ":testing",
     ]
 
-    configs += [ "//third_party/glfw:glfw_config" ]
+    if (use_glfw) {
+      sources += [
+        "platform/linux/platform_view_linux.cc",
+      ]
+
+      deps += [ 
+        "//third_party/glfw",
+        ":gpu_direct",
+      ]
+
+      configs += [ "//third_party/glfw:glfw_config" ]
+    } else {
+      sources += [
+        "platform/linux/platform_view_linux_stub.cc",
+      ]
+    }
   }
 } else if (is_mac) {
   import("//build/config/mac/rules.gni")
