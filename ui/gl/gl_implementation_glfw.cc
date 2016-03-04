@@ -65,7 +65,6 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
     }
     case kGLImplementationDesktopGL:
     case kGLImplementationEGLGLES2: {
-      LOG(INFO) << "Setting GLFW implementation";
       SetGLGetProcAddressProc(
           reinterpret_cast<GLGetProcAddressProc>(glfwGetProcAddress));
       SetGLImplementation(implementation);
