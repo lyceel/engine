@@ -1,0 +1,51 @@
+# Copyright (c) 2013 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+config("glfw_config") {
+  include_dirs = [ "//third_party/glfw/include" ]
+}
+
+shared_library("glfw") {
+  defines = [
+    "_GLFW_BUILD_DLL=1",
+  ]
+
+  sources = [
+    "src/context.c",
+    "src/init.c",
+    "src/input.c",
+    "src/monitor.c",
+    "src/window.c",
+  ]
+
+  if (is_linux) {
+    cflags = [ "-g" ]
+    defines += [
+      "_GLFW_X11=1",
+      "_GLFW_GLX=1",
+      "_GLFW_USE_OPENGL=1",
+    ]
+
+    sources += [
+      "src/glx_context.c",
+      "src/x11_init.c",
+      "src/x11_monitor.c",
+      "src/x11_window.c",
+      "src/xkb_unicode.c",
+      "src/linux_joystick.c",
+      "src/posix_time.c",
+      "src/posix_tls.c",
+    ]
+  }
+
+  libs = [
+    "GL",
+    "X11",
+    "Xcursor",
+    "Xext",
+    "Xinerama",
+    "Xrandr",
+  ]
+}
+
