@@ -4,21 +4,36 @@
 
 part of dart_ui;
 
+/// Opaque handle to raw decoded image data (pixels).
+///
+/// To obtain an Image object, use the [decodeImageFromDataPipe] or
+/// [decodeImageFromList] functions.
+///
+/// To draw an Image, use one of the methods on the [Canvas] class, such as
+/// [drawImage].
 abstract class Image extends NativeFieldWrapperClass2 {
+  /// The number of image pixels along the image's horizontal axis.
   int get width native "Image_width";
+
+  /// The number of image pixels along the image's vertical axis.
   int get height native "Image_height";
 
+  /// Release the resources used by this object. The object is no longer usable
+  /// after this method is called.
   void dispose() native "Image_dispose";
 
   String toString() => '[$width\u00D7$height]';
 }
 
-typedef void _ImageDecoderCallback(Image result);
+/// Callback signature for [decodeImageFromDataPipe] and [decodeImageFromList].
+typedef void ImageDecoderCallback(Image result);
 
-void decodeImageFromDataPipe(int handle, _ImageDecoderCallback callback)
+/// Convert an image file from a mojo pipe into an [Image] object.
+void decodeImageFromDataPipe(int handle, ImageDecoderCallback callback)
     native "decodeImageFromDataPipe";
 
-void decodeImageFromList(Uint8List list, _ImageDecoderCallback callback)
+/// Convert an image file from a byte array into an [Image] object.
+void decodeImageFromList(Uint8List list, ImageDecoderCallback callback)
     native "decodeImageFromList";
 
 class Path extends NativeFieldWrapperClass2 {
@@ -43,45 +58,6 @@ class Path extends NativeFieldWrapperClass2 {
   void close() native "Path_close";
   void reset() native "Path_reset";
   Path shift(Offset offset) native "Path_shift";
-}
-
-abstract class DrawLooper extends NativeFieldWrapperClass2 {
-}
-
-/// Paint masks for DrawLooperLayerInfo.setPaintBits. These specify which
-/// aspects of the layer's paint should replace the corresponding aspects on
-/// the draw's paint.
-///
-/// PaintBits.all means use the layer's paint completely.
-/// 0 means ignore the layer's paint... except for colorMode, which is
-/// always applied.
-class PaintBits {
-  static const int style       = 0x1;
-  static const int testSkewx   = 0x2;
-  static const int pathEffect  = 0x4;
-  static const int maskFilter  = 0x8;
-  static const int shader      = 0x10;
-  static const int colorFilter = 0x20;
-  static const int xfermode    = 0x40;
-  static const int all         = 0xFFFFFFFF;
-}
-
-class DrawLooperLayerInfo extends NativeFieldWrapperClass2 {
-  void _constructor() native "DrawLooperLayerInfo_constructor";
-  DrawLooperLayerInfo() { _constructor(); }
-
-  void setPaintBits(int bits) native "DrawLooperLayerInfo_setPaintBits";
-  void setColorMode(TransferMode mode) native "DrawLooperLayerInfo_setColorMode";
-  void setOffset(Offset offset) native "DrawLooperLayerInfo_setOffset";
-  void setPostTranslate(bool postTranslate) native "DrawLooperLayerInfo_setPostTranslate";
-}
-
-class LayerDrawLooperBuilder extends NativeFieldWrapperClass2 {
-  void _constructor() native "LayerDrawLooperBuilder_constructor";
-  LayerDrawLooperBuilder() { _constructor(); }
-
-  DrawLooper build() native "LayerDrawLooperBuilder_build";
-  void addLayerOnTop(DrawLooperLayerInfo info, Paint paint) native "LayerDrawLooperBuilder_addLayerOnTop";
 }
 
 /// Blur styles. These mirror SkBlurStyle and must be kept in sync.
@@ -335,6 +311,8 @@ abstract class Picture extends NativeFieldWrapperClass2 {
   /// canvas the option of just taking a ref.
   void playback(Canvas canvas) native "Picture_playback";
 
+  /// Release the resources used by this object. The object is no longer usable
+  /// after this method is called.
   void dispose() native "Picture_dispose";
 }
 

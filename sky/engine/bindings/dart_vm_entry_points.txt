@@ -12,6 +12,7 @@ dart:ui,::,_getScheduleMicrotaskClosure
 dart:ui,::,_onAppLifecycleStateChanged
 dart:ui,::,_popRoute
 dart:ui,::,_pushRoute
+dart:ui,::,_setupHooks
 dart:ui,::,_updateLocale
 dart:ui,::,_updateWindowMetrics
 dart:ui,::,takeRootBundleHandle
@@ -19,11 +20,8 @@ dart:ui,::,takeServicesProvidedByEmbedder
 dart:ui,::,takeServicesProvidedToEmbedder
 dart:ui,::,takeShellProxyHandle
 dart:ui,Canvas,Canvas.
-dart:ui,DrawLooper,DrawLooper.
-dart:ui,DrawLooperLayerInfo,DrawLooperLayerInfo.
 dart:ui,Image,Image.
 dart:ui,ImageShader,ImageShader.
-dart:ui,LayerDrawLooperBuilder,LayerDrawLooperBuilder.
 dart:ui,Paragraph,Paragraph.
 dart:ui,ParagraphBuilder,ParagraphBuilder.
 dart:ui,Path,Path.
